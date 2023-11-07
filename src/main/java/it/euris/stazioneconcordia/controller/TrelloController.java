@@ -1,6 +1,5 @@
 package it.euris.stazioneconcordia.controller;
 
-import com.google.gson.reflect.TypeToken;
 import it.euris.stazioneconcordia.data.dto.*;
 import it.euris.stazioneconcordia.data.model.*;
 import it.euris.stazioneconcordia.data.trelloDto.*;
@@ -14,10 +13,8 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
-import java.lang.reflect.Type;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Set;
 
 
 @AllArgsConstructor
@@ -46,8 +43,8 @@ public class TrelloController {
         insertUsersFromTrelloToDb(idBoard);
         insertLabelsFromTrelloToDb(idBoard);
         insertListsFromTrelloToDb(idBoard);
-        insertCardsFromTrelloToDb(idBoard);
-        insertCommentsFromTrelloToDb();
+        insertCardsFromTrelloToDb();
+//       defaultLabel
 
     }
 
@@ -57,10 +54,11 @@ public class TrelloController {
     }
 
     public void insertBoardFromTrelloToDb(String idBoard) {
-        BoardDTO boardDTO = getBoardFromTrello(idBoard).trellotoDto();
-        boardService.insertBoardFromTrello(boardDTO);
+        if (boardService.getBoardByIdTrelloFromDb(idBoard) == null) {
+            BoardDTO boardDTO = getBoardFromTrello(idBoard).trellotoDto();
+            boardService.insertBoardFromTrello(boardDTO);
+        }
     }
-
 
     public List<ListsTrelloDto> getListsFromTrelloBoard(String idBoard) {
         return listsTrelloService.getListsByIdBoard(idBoard);
@@ -86,9 +84,14 @@ public class TrelloController {
                 .map(LabelsTrelloDto::trellotoDto)
                 .map(LabelsDTO::toModel)
                 .forEach(labels -> {
-                    labels.setBoard(Board.builder().id(idBoardFromDB).build());
-                    labelsService.insert(labels);
+                    if (!(labelsService.getAllIdTrelloForLabels().contains(labels.getIdTrello()))) {
+                        labels.setBoard(Board.builder().id(idBoardFromDB).build());
+                        labelsService.insert(labels);
+                    }
                 });
+        Labels defaultLabel = Labels.builder().idTrello("0").name("DefaultLabel")
+                .board(Board.builder().id(idBoardFromDB).build()).build();
+        labelsService.insert(defaultLabel);
     }
 
     public List<UserTrelloDto> getAllUsersFromBoard(String idBoard) {
@@ -113,8 +116,10 @@ public class TrelloController {
                 .map(ListsTrelloDto::trellotoDto)
                 .map(ListsDTO::toModel)
                 .forEach(lists -> {
-                    lists.setBoard(Board.builder().id(idBoardFromDB).build());
-                    listsService.insert(lists);
+                    if (!(listsService.getAllIdTrelloForLists().contains(lists.getIdTrello()))) {
+                        lists.setBoard(Board.builder().id(idBoardFromDB).build());
+                        listsService.insert(lists);
+                    }
                 });
     }
 
@@ -134,18 +139,29 @@ public class TrelloController {
                     cardService.insert(card);
                 });
     }
+//    public void compareCard(Card card,Card card2){
+//        if(card.getDateLastActivity().isAfter(card2.getDateLastActivity())
+//    }
 
 
-    public void insertCardsFromTrelloToDb(String idBoard) {
+    public void insertCardsFromTrelloToDb() {
         List<CardTrelloDto> cardTrelloDtos = new ArrayList<>();
 
-        for(String idList : getAllIdTrelloForLabelsFromDb()){
-            List<CardTrelloDto> cardsList = getCardsFromTrelloList(idList);
+        for (String idList : getAllIdTrelloForListsFromDb()) {
+            List<CardTrelloDto> cardsList = getCardsFromTrelloByIdList(idList);
+
             cardTrelloDtos.addAll(cardsList);
         }
         for (CardTrelloDto card : cardTrelloDtos) {
-            String idLabel = card.getIdLabels().toString();
-            insertCardByLabel(idLabel, card);
+            List<String> idLabels = card.getIdLabels();
+            if (idLabels == null || idLabels.isEmpty()) {
+                String idLabel = "0";
+                insertCardByLabel(idLabel, card);
+            } else {
+                for (String idLabel : idLabels) {
+                    insertCardByLabel(idLabel, card);
+                }
+            }
         }
 
 //        List<String> idTrelloListsFromDb = getAllIdTrelloForListsFromDb();
@@ -159,19 +175,23 @@ public class TrelloController {
 
     private void insertCardByLabel(String idLabel, CardTrelloDto card) {
 
-        Long idLabelFromDb = labelsService.getLabelByIdTrelloFromDb(idLabel).getId();
+        Long idLabelFromDb;
+        if (idLabel != null) {
+            idLabelFromDb = labelsService.getLabelByIdTrelloFromDb(idLabel).getId();
+        } else {
+            idLabelFromDb = labelsService.getDefaultLabelId();
+        }
 
-
-        if(!cardService.cardExistByTrelloIdAndLabel(card.getId(),idLabelFromDb)) {
+        if (!cardService.cardExistByTrelloIdAndLabel(card.getId(), idLabelFromDb)) {
             Long idListFromDb = listsService.getListByIdTrelloFromDb(card.getIdList()).getId();
 
             card.trellotoDto().toModel().setList(Lists.builder().id(idListFromDb).build());
             card.trellotoDto().toModel().setLabels(Labels.builder().id(idLabelFromDb).build());
             card.trellotoDto().toModel().setList(Lists.builder().id(idLabelFromDb).build());
+            cardService.insertIntoDb(card.trellotoDto().toModel());
         }
 
     }
-
 
 
     private List<String> getAllIdTrelloForLabelsFromDb() {
@@ -230,4 +250,5 @@ public class TrelloController {
 //        return commentDTOs;
         return null;
     }
+
 }
