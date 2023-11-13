@@ -48,13 +48,14 @@ public class CardServiceImpl implements CardService {
 
         List<Card> cardsNearExpiration = cards
                 .stream()
+                .filter(card -> card.getExpirationDate()!=null)
                 .filter(Card -> Card.getExpirationDate().isAfter(LocalDateTime.now().minusDays(5L)))
+                .filter(Card -> Card.getExpirationDate().isBefore(LocalDateTime.now().plusDays(5L)))
                 .collect(Collectors.toList());
-
 
         if (cardsNearExpiration.size() > 1) {
             return cardsNearExpiration.stream()
-                    .sorted(Comparator.comparing(Card::getExpirationDate).reversed())
+                    .sorted(Comparator.comparing(Card::getExpirationDate))
                     .collect(Collectors.toList());
 
         }
